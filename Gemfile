@@ -1,3 +1,5 @@
+source :rubygems
 gem 'sinatra'
-gem 'datamapper'
+gem 'dm-core'
+gem 'dm-migrations'
 gem 'dm-sqlite-adapter'
