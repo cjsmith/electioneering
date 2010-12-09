@@ -5,10 +5,8 @@ require 'haml'
 
 set :port, 8080
 
-Candidates = [ 'science', 'math' ] 
+Candidates = [ 'Obama', 'Palin' ] 
 NumVotes = 3
-
-DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
 
 class Votes 
   include DataMapper::Resource
@@ -17,8 +15,26 @@ class Votes
   property :candidate, String
 end
 
+DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
 DataMapper.finalize
 Votes.auto_upgrade!
+
+before '/vote*' do 
+  redirect '/results' unless times_voted(request.ip) < NumVotes  
+end
+
+get '/vote' do
+  haml :candidates
+end	
+
+post '/vote/:candidate' do
+  vote(request.ip, params[:candidate])
+  redirect '/vote'
+end
+
+get '/results' do
+  haml :results
+end
 
 def times_voted(ip)
   Votes.count(:conditions => ['ip = ?', ip])
@@ -30,22 +46,7 @@ end
 
 def print_votes(candidate)
   num_votes = Votes.count(:conditions => ['candidate = ?', candidate])
-  "#{candidate}: " + (num_votes == 1 ? "1 vote" : "#{num_votes} votes")
-end
-
-get '/' do
-  redirect '/results' if times_voted(request.ip) >= 3 
-  haml :candidates
-end	
-
-post '/vote/:candidate' do
-  redirect '/results' if times_voted(request.ip) >= 3 
-  vote(request.ip, params[:candidate])
-  redirect '/'
-end
-
-get '/results' do
-  haml :results
+  num_votes == 1 ? "1 vote" : "#{num_votes} votes"
 end
 
 __END__
@@ -55,7 +56,7 @@ __END__
   = yield
 
 @@ candidates
-%h3 Pick #{times_voted(request.ip) == 1 ? "Another":""} One #{times_voted(request.ip) == 2 ? "More":""}.
+%h3 Pick#{times_voted(request.ip) == 1 ? " Another":""} One#{times_voted(request.ip) == 2 ? " More":""}.
 %ol
   - Candidates.each do |candidate|
     %li
@@ -65,6 +66,8 @@ __END__
 
 @@ results
 %h3 Results:
-%ol
+%table
   - Candidates.each do |candidate|
-    %li #{print_votes(candidate)}
+    %tr 
+      %td{:align => 'right'} #{candidate}:
+      %td #{print_votes(candidate)}
