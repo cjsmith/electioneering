@@ -1,41 +1,70 @@
 require 'rubygems'
 require 'sinatra'
-require 'dm-core'
-require 'dm-migrations'
+require 'datamapper'
+require 'haml'
 
 set :port, 8080
 
-candidates = ['science', 'math']
+Candidates = [ 'science', 'math' ] 
+NumVotes = 3
 
 DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
 
 class Votes 
-    include DataMapper::Resource
-    property :id, Serial
-    property :ip, String
-    property :candidate, String
+  include DataMapper::Resource
+  property :id, Serial
+  property :ip, String
+  property :candidate, String
 end
 
 DataMapper.finalize
-
 Votes.auto_upgrade!
 
-def display_candidate(candidate)
-    "<li><form method='post' action='/vote/#{candidate}'>#{candidate}<input value='vote' type='submit'/></form></li>"
+def times_voted(ip)
+  Votes.count(:conditions => ['ip = ?', ip])
+end
+
+def vote(ip, candidate)
+  Votes.create(:ip => ip, :candidate => candidate) 
+end
+
+def print_votes(candidate)
+  num_votes = Votes.count(:conditions => ['candidate = ?', candidate])
+  "#{candidate}: " + (num_votes == 1 ? "1 vote" : "#{num_votes} votes")
 end
 
 get '/' do
-    "<h2>Pick one:</h2><ol>" + candidates.map{|candidate| display_candidate(candidate)}.join('<br/>') + "</ol>"
+  redirect '/results' if times_voted(request.ip) >= 3 
+  haml :candidates
 end	
 
 post '/vote/:candidate' do
-    Votes.create(:ip => @env['REMOTE_ADDR'], :candidate => params[:candidate])
-    redirect '/results'
+  redirect '/results' if times_voted(request.ip) >= 3 
+  vote(request.ip, params[:candidate])
+  redirect '/'
 end
 
 get '/results' do
-    candidates.map{|candidate| "<li>#{candidate} = #{Votes.count(:candidate => candidate).to_s}</li>"}.join('<br>')
+  haml :results
 end
 
+__END__
 
+@@ layout
+%html
+  = yield
 
+@@ candidates
+%h3 Pick #{times_voted(request.ip) == 1 ? "Another":""} One #{times_voted(request.ip) == 2 ? "More":""}.
+%ol
+  - Candidates.each do |candidate|
+    %li
+      =candidate 
+      %form{:method => "post", :action => "/vote/#{candidate}"}
+        %input{:value => "vote", :type => "submit"}
+
+@@ results
+%h3 Results:
+%ol
+  - Candidates.each do |candidate|
+    %li #{print_votes(candidate)}
