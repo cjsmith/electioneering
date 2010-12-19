@@ -33,6 +33,7 @@ post '/vote/:candidate' do
 end
 
 get '/results' do
+  @votes = collect_votes 
   haml :results
 end
 
@@ -44,9 +45,9 @@ def vote(ip, candidate)
   Votes.create(:ip => ip, :candidate => candidate) 
 end
 
-def print_votes(candidate)
-  num_votes = Votes.count(:conditions => ['candidate = ?', candidate])
-  num_votes == 1 ? "1 vote" : "#{num_votes} votes"
+def collect_votes()
+  votes = Candidates.map{|c| [Votes.count(:candidate => c), c]}
+  Hash[*votes.flatten].sort.reverse # show candidates with most votes first
 end
 
 __END__
@@ -67,7 +68,7 @@ __END__
 @@ results
 %h3 Results:
 %table
-  - Candidates.each do |candidate|
-    %tr 
+  - @votes.each do |num_votes, candidate|
+    %tr
       %td{:align => 'right'} #{candidate}:
-      %td #{print_votes(candidate)}
+      %td #{num_votes == 1 ? "1 vote" : "#{num_votes} votes"}
