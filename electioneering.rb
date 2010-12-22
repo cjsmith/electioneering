@@ -63,12 +63,12 @@ __END__
     %li
       =candidate 
       %form{:method => "post", :action => "/vote/#{candidate}"}
-        %input{:value => "vote", :type => "submit"}
+        %input{:id => "#{candidate}", :value => "vote", :type => "submit"}
 
 @@ results
 %h3 Results:
 %table
   - @votes.each do |num_votes, candidate|
-    %tr
+    %tr{:id => "#{candidate}"}
       %td{:align => 'right'} #{candidate}:
       %td #{num_votes == 1 ? "1 vote" : "#{num_votes} votes"}
