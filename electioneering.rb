@@ -8,7 +8,7 @@
 #    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 #    GNU General Public License for more details.
 #
-#    You should have received a copy of the GNU General Public License
+#    You should have received a copy of the GNU Lesser General Public License
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 require 'rubygems'
@@ -18,7 +18,17 @@ require 'haml'
 
 set :port, 8080
 
-NumVotes = 3
+## MODEL
+
+class Election
+  include DataMapper::Resource
+  
+  property :id, Serial
+  property :name, String
+  property :num_votes, Integer
+  
+  has n, :candidates
+end
 
 class Candidate
   include DataMapper::Resource
@@ -27,6 +37,7 @@ class Candidate
   property :name, String
 
   has n, :votes
+  belongs_to :election
 end
 
 class Vote 
@@ -41,27 +52,46 @@ end
 DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
 DataMapper.finalize
 
-Vote.auto_upgrade!
+Election.auto_upgrade!
 Candidate.auto_upgrade!
+Vote.auto_upgrade!
 
-Candidate.first_or_create(:name => 'Obama')
-Candidate.first_or_create(:name => 'Palin')
+@@election = Election.first_or_create(:name => "US Presidential", :num_votes => 3)
+Candidate.first_or_create(:election => @@election, :name => 'Obama')
+Candidate.first_or_create(:election => @@election, :name => 'Palin')
+
+def times_voted(ip)
+  Vote.count(:conditions => ['ip = ?', ip])
+end
+
+def vote(ip, candidate)
+  Vote.create(:ip => ip, :candidate => candidate) 
+end
+
+def collect_votes()
+  votes = Candidate.all(:election => @@election).map{|c| [c.votes.count, c.name]}
+  Hash[*votes.flatten].sort.reverse # show candidates with most votes first
+end
+
+# CONTROLLER
 
 get '/' do
   redirect '/vote'
 end
 
-before '/vote*' do 
-  redirect '/results' unless times_voted(request.ip) < NumVotes  
+before '/vote*' do
+  redirect '/results' unless times_voted(request.ip) < @@election.num_votes 
 end
 
 get '/vote' do
-  @candidates = Candidate.all
+  @candidates = Candidate.all(:election => @@election)
   haml :candidates
 end	
 
 post '/vote/:candidate_name' do
-  vote(request.ip, params[:candidate_name])
+  candidate_name = params[:candidate_name]
+  candidate = Candidate.first(:name => candidate_name, :election => @@election) 
+  vote(request.ip, candidate)
   redirect '/vote'
 end
 
@@ -70,26 +100,16 @@ get '/results' do
   haml :results
 end
 
-def times_voted(ip)
-  Vote.count(:conditions => ['ip = ?', ip])
-end
-
-def vote(ip, candidate)
-  Vote.create(:ip => ip, :candidate => Candidate.first(:name => candidate)) 
-end
-
-def collect_votes()
-  votes = Candidate.all.map{|c| [c.votes.count, c.name]}
-  Hash[*votes.flatten].sort.reverse # show candidates with most votes first
-end
-
 __END__
+
+## VIEW
 
 @@ layout
 %html
   = yield
 
 @@ candidates
+%title #{@@election.name}
 %h3 Pick#{times_voted(request.ip) == 1 ? " Another":""} One#{times_voted(request.ip) == 2 ? " More":""}.
 %ol
   - @candidates.each do |candidate|
