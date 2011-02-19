@@ -1,3 +1,16 @@
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 require 'rubygems'
 require 'sinatra'
 require 'datamapper'
@@ -5,30 +18,50 @@ require 'haml'
 
 set :port, 8080
 
-Candidates = [ 'Obama', 'Palin' ] 
 NumVotes = 3
 
-class Votes 
+class Candidate
   include DataMapper::Resource
+
+  property :id, Serial
+  property :name, String
+
+  has n, :votes
+end
+
+class Vote 
+  include DataMapper::Resource
+
   property :id, Serial
   property :ip, String
-  property :candidate, String
+
+  belongs_to :candidate
 end
 
 DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
 DataMapper.finalize
-Votes.auto_upgrade!
+
+Vote.auto_upgrade!
+Candidate.auto_upgrade!
+
+Candidate.first_or_create(:name => 'Obama')
+Candidate.first_or_create(:name => 'Palin')
+
+get '/' do
+  redirect '/vote'
+end
 
 before '/vote*' do 
   redirect '/results' unless times_voted(request.ip) < NumVotes  
 end
 
 get '/vote' do
+  @candidates = Candidate.all
   haml :candidates
 end	
 
-post '/vote/:candidate' do
-  vote(request.ip, params[:candidate])
+post '/vote/:candidate_name' do
+  vote(request.ip, params[:candidate_name])
   redirect '/vote'
 end
 
@@ -38,15 +71,15 @@ get '/results' do
 end
 
 def times_voted(ip)
-  Votes.count(:conditions => ['ip = ?', ip])
+  Vote.count(:conditions => ['ip = ?', ip])
 end
 
 def vote(ip, candidate)
-  Votes.create(:ip => ip, :candidate => candidate) 
+  Vote.create(:ip => ip, :candidate => Candidate.first(:name => candidate)) 
 end
 
 def collect_votes()
-  votes = Candidates.map{|c| [Votes.count(:candidate => c), c]}
+  votes = Candidate.all.map{|c| [c.votes.count, c.name]}
   Hash[*votes.flatten].sort.reverse # show candidates with most votes first
 end
 
@@ -59,11 +92,11 @@ __END__
 @@ candidates
 %h3 Pick#{times_voted(request.ip) == 1 ? " Another":""} One#{times_voted(request.ip) == 2 ? " More":""}.
 %ol
-  - Candidates.each do |candidate|
+  - @candidates.each do |candidate|
     %li
-      =candidate 
-      %form{:method => "post", :action => "/vote/#{candidate}"}
-        %input{:id => "#{candidate}", :value => "vote", :type => "submit"}
+      =candidate.name 
+      %form{:method => "post", :action => "/vote/#{candidate.name}"}
+        %input{:id => "#{candidate.name}", :value => "vote", :type => "submit"}
 
 @@ results
 %h3 Results:

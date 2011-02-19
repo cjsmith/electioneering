@@ -1,0 +1,9 @@
+Autotest.add_hook :initialize do |at|
+  at.add_mapping(%r%^spec/acceptance/.*_spec.rb$%, true) do |filename, _|
+    filename
+  end 
+ 
+  %w[.git .db Gemfile Gemfile.lock README].each do |exception|
+    at.add_exception(exception)
+  end
+end
