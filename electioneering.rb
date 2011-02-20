@@ -28,6 +28,16 @@ class Poll
   property :num_votes, Integer
   
   has n, :candidates
+
+  def collect_votes
+    votes = Candidate.all(:poll => self).map{|c| [c.votes.count, c.name]}
+    Hash[*votes.flatten].sort.reverse # show candidates with most votes first
+  end
+  
+  def count_votes(ip)
+    Vote.count(:ip => ip, Vote.candidate.poll.id => self.id)
+  end
+
 end
 
 class Candidate
@@ -38,6 +48,10 @@ class Candidate
 
   has n, :votes
   belongs_to :poll
+  
+  def vote(ip)
+    Vote.create(:ip => ip, :candidate => self) 
+  end
 end
 
 class Vote 
@@ -48,6 +62,7 @@ class Vote
 
   belongs_to :candidate
   has 1, :poll, {:through => :candidate}
+  
 end
 
 DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
@@ -61,18 +76,6 @@ Presidential = Poll.first_or_create(:name => "US Presidential", :num_votes => 3)
 Candidate.first_or_create(:poll => Presidential, :name => 'Obama')
 Candidate.first_or_create(:poll => Presidential, :name => 'Palin')
 
-def times_voted(ip, poll)
-  Vote.count(:ip => ip, Vote.candidate.poll.id => poll.id)
-end
-
-def vote(ip, candidate)
-  Vote.create(:ip => ip, :candidate => candidate) 
-end
-
-def collect_votes(poll)
-  votes = Candidate.all(:poll => poll).map{|c| [c.votes.count, c.name]}
-  Hash[*votes.flatten].sort.reverse # show candidates with most votes first
-end
 
 # CONTROLLER
 
@@ -99,7 +102,7 @@ end
 
 get '/polls/:poll_id' do
   @poll = Poll.get(params[:poll_id])
-  @times_voted = times_voted(request.ip, @poll)
+  @times_voted = @poll.count_votes(request.ip)
   redirect '/polls/' + @poll.id.to_s + '/results' unless @times_voted < @poll.num_votes 
   @candidates = Candidate.all(:poll => @poll)
   haml :candidates
@@ -108,13 +111,13 @@ end
 post '/polls/:poll_id/vote/:candidate_id' do
   @poll = Poll.get(params[:poll_id])
   candidate = Candidate.get(params[:candidate_id]) 
-  vote(request.ip, candidate)
+  candidate.vote(request.ip)
   redirect '/polls/' + @poll.id.to_s  
 end
 
 get '/polls/:poll_id/results' do
   @poll = Poll.get(params[:poll_id])
-  @votes = collect_votes(@poll) 
+  @votes = @poll.collect_votes 
   haml :results
 end
 
