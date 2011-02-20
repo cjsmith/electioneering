@@ -6,7 +6,7 @@ RSpec.configure do |config|
   config.include Rack::Test::Methods
 
   config.before(:suite ) do
-    DatabaseCleaner.strategy = :truncation, {:except => ['candidates']}
+    DatabaseCleaner.strategy = :truncation, {:except => ['candidates','polls']}
   end
 
   config.before(:each ) do

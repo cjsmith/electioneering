@@ -6,7 +6,7 @@ RSpec.configure do |config|
   config.include Capybara
 
   config.before(:suite, :type => :acceptance ) do
-    DatabaseCleaner.strategy = :truncation, {:except => ['candidates']}
+    DatabaseCleaner.strategy = :truncation, {:except => ['candidates','polls']}
   end
 
   config.before(:each, :type => :acceptance) do

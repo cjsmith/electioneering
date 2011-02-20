@@ -20,7 +20,7 @@ set :port, 8080
 
 ## MODEL
 
-class Election
+class Poll
   include DataMapper::Resource
   
   property :id, Serial
@@ -37,7 +37,7 @@ class Candidate
   property :name, String
 
   has n, :votes
-  belongs_to :election
+  belongs_to :poll
 end
 
 class Vote 
@@ -47,56 +47,74 @@ class Vote
   property :ip, String
 
   belongs_to :candidate
+  has 1, :poll, {:through => :candidate}
 end
 
 DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
 DataMapper.finalize
 
-Election.auto_upgrade!
+Poll.auto_upgrade!
 Candidate.auto_upgrade!
 Vote.auto_upgrade!
 
-@@election = Election.first_or_create(:name => "US Presidential", :num_votes => 3)
-Candidate.first_or_create(:election => @@election, :name => 'Obama')
-Candidate.first_or_create(:election => @@election, :name => 'Palin')
+Presidential = Poll.first_or_create(:name => "US Presidential", :num_votes => 3)
+Candidate.first_or_create(:poll => Presidential, :name => 'Obama')
+Candidate.first_or_create(:poll => Presidential, :name => 'Palin')
 
-def times_voted(ip)
-  Vote.count(:conditions => ['ip = ?', ip])
+def times_voted(ip, poll)
+  Vote.count(:ip => ip, Vote.candidate.poll.id => poll.id)
 end
 
 def vote(ip, candidate)
   Vote.create(:ip => ip, :candidate => candidate) 
 end
 
-def collect_votes()
-  votes = Candidate.all(:election => @@election).map{|c| [c.votes.count, c.name]}
+def collect_votes(poll)
+  votes = Candidate.all(:poll => poll).map{|c| [c.votes.count, c.name]}
   Hash[*votes.flatten].sort.reverse # show candidates with most votes first
 end
 
 # CONTROLLER
 
 get '/' do
-  redirect '/vote'
+  redirect '/polls/' + Presidential.id.to_s 
 end
 
-before '/vote*' do
-  redirect '/results' unless times_voted(request.ip) < @@election.num_votes 
+get '/polls' do
+  @polls = Poll.all
+  haml :polls
 end
 
-get '/vote' do
-  @candidates = Candidate.all(:election => @@election)
+get '/polls/new' do
+  haml :new_poll 
+end
+
+post '/polls/create' do
+  poll = Poll.create(:name => params[:name], :num_votes => params[:num_votes])
+  params[:candidates].each_line do |candidate_name|
+    Candidate.create(:name => candidate_name, :poll => poll)
+  end
+  redirect '/polls'
+end
+
+get '/polls/:poll_id' do
+  @poll = Poll.get(params[:poll_id])
+  @times_voted = times_voted(request.ip, @poll)
+  redirect '/polls/' + @poll.id.to_s + '/results' unless @times_voted < @poll.num_votes 
+  @candidates = Candidate.all(:poll => @poll)
   haml :candidates
 end	
 
-post '/vote/:candidate_name' do
-  candidate_name = params[:candidate_name]
-  candidate = Candidate.first(:name => candidate_name, :election => @@election) 
+post '/polls/:poll_id/vote/:candidate_id' do
+  @poll = Poll.get(params[:poll_id])
+  candidate = Candidate.get(params[:candidate_id]) 
   vote(request.ip, candidate)
-  redirect '/vote'
+  redirect '/polls/' + @poll.id.to_s  
 end
 
-get '/results' do
-  @votes = collect_votes 
+get '/polls/:poll_id/results' do
+  @poll = Poll.get(params[:poll_id])
+  @votes = collect_votes(@poll) 
   haml :results
 end
 
@@ -108,18 +126,47 @@ __END__
 %html
   = yield
 
+@@ polls
+%h3 Polls:
+%ol 
+  - @polls.each do |poll|
+    %li
+      %a{ :href => "/polls/#{poll.id}"} 
+        =poll.name
+%a{ :href => "polls/new" } New Poll    
+
+@@new_poll
+%h3 Create A New Poll:
+%form{ :method => "post", :action => "/polls/create" }
+  %label Name:
+  %input{ :name => "name" }
+  %br
+  %br
+  %label Number of Votes:
+  %input{ :name => "num_votes" , :size => 3}
+  %br
+  %br
+  %label List of Candidates (one per line)
+  %br
+  %textarea{ :name => "candidates", :rows => 5, :cols => 20 }
+  %br
+  %br
+  %input{ :type => "submit" , :value => 'Create'}
+
 @@ candidates
-%title #{@@election.name}
-%h3 Pick#{times_voted(request.ip) == 1 ? " Another":""} One#{times_voted(request.ip) == 2 ? " More":""}.
+%title #{@poll.name} Poll
+%h3 #{@poll.name} Poll
+%h2 Pick#{@times_voted > 0 && @times_voted < @poll.num_votes - 1 ? " Another":""} One#{@times_voted == @poll.num_votes - 1 ? " More":""}.
 %ol
   - @candidates.each do |candidate|
     %li
       =candidate.name 
-      %form{:method => "post", :action => "/vote/#{candidate.name}"}
+      %form{:method => "post", :action => "/polls/#{@poll.id}/vote/#{candidate.id}"}
         %input{:id => "#{candidate.name}", :value => "vote", :type => "submit"}
 
 @@ results
-%h3 Results:
+%title #{@poll.name} Poll
+%h3 #{@poll.name} Poll Results:
 %table
   - @votes.each do |num_votes, candidate|
     %tr{:id => "#{candidate}"}

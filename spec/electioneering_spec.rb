@@ -15,17 +15,17 @@ describe "Electioneering" do
   end
  
   it "should allow you to vote 3 times" do 
-    post '/vote/Obama'
+    post '/polls/1/vote/1'
     follow_redirect!
     last_response.should be_ok
     last_response.body.should include("Pick Another One.") 	
 
-    post '/vote/Palin'
+    post '/polls/1/vote/2'
     follow_redirect!
     last_response.should be_ok
     last_response.body.should include("Pick One More.")
      
-    post '/vote/Obama'
+    post '/polls/1/vote/1'
     follow_redirect!
     follow_redirect!
     last_response.should be_ok
