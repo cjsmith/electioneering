@@ -2,6 +2,7 @@ source :rubygems
 gem 'sinatra'
 gem 'datamapper'
 gem 'dm-sqlite-adapter'
+gem 'dm-postgres-adapter'
 gem 'haml'
 
 group :test do
