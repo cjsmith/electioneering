@@ -65,7 +65,7 @@ class Vote
   
 end
 
-DataMapper::setup(:default, "sqlite3://#{Dir.pwd}/electioneering.db")
+DataMapper::setup(:default, ENV['DATABASE_URL'] || 'sqlite3://#{Dir.pwd}/electioneering.db')
 DataMapper.finalize
 
 Poll.auto_upgrade!
