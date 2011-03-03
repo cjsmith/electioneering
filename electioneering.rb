@@ -30,14 +30,25 @@ class Poll
   has n, :candidates
 
   def collect_votes
-    votes = Candidate.all(:poll => self).map{|c| [c.votes.count, c.name]}
-    Hash[*votes.flatten].sort.reverse # show candidates with most votes first
+    repository.adapter.select(
+        "SELECT c.id, count(v.id) AS num_votes, c.name
+          FROM candidates c LEFT OUTER JOIN votes v ON c.id = v.candidate_id 
+          WHERE c.poll_id = #{self.id}
+          GROUP BY c.id
+          ORDER BY num_votes desc"
+    ).map{|row| [row.num_votes, row.name]}
   end
   
   def count_votes(ip)
     Vote.count(:ip => ip, Vote.candidate.poll.id => self.id)
   end
 
+  def has_voted(ip)
+    case self.num_votes
+      when 0 then count_votes(ip) > 0
+      else count_votes(ip) >= self.num_votes
+    end
+  end
 end
 
 class Candidate
@@ -52,6 +63,7 @@ class Candidate
   def vote(ip)
     Vote.create(:ip => ip, :candidate => self) 
   end
+
 end
 
 class Vote 
@@ -65,7 +77,7 @@ class Vote
   
 end
 
-DataMapper::setup(:default, ENV['DATABASE_URL'] || 'sqlite3://#{Dir.pwd}/electioneering.db')
+DataMapper::setup(:default, ENV['DATABASE_URL'] || "sqlite3://#{Dir.pwd}/electioneering.db")
 DataMapper.finalize
 
 Poll.auto_upgrade!
@@ -93,9 +105,14 @@ get '/polls/new' do
 end
 
 post '/polls/create' do
-  poll = Poll.create(:name => params[:name], :num_votes => params[:num_votes])
+  num_votes = case params[:vote_type]
+          when 'checkbox' then 0 
+          when 'single' then 1 
+          when 'multi' then params[:num_votes] 
+        end
+  poll = Poll.create(:name => params[:name], :num_votes => num_votes)
   params[:candidates].each_line do |candidate_name|
-    Candidate.create(:name => candidate_name, :poll => poll)
+    Candidate.create(:name => candidate_name.strip, :poll => poll)
   end
   redirect '/polls'
 end
@@ -103,16 +120,31 @@ end
 get '/polls/:poll_id' do
   @poll = Poll.get(params[:poll_id])
   @times_voted = @poll.count_votes(request.ip)
-  redirect '/polls/' + @poll.id.to_s + '/results' unless @times_voted < @poll.num_votes 
+  redirect "/polls/#{@poll.id.to_s}/results" if @poll.has_voted(request.ip)
   @candidates = Candidate.all(:poll => @poll)
-  haml :candidates
+  if @poll.num_votes == 0
+    haml :choose_many_candidates
+  else
+    haml :choose_one_candidate
+  end
 end	
+
+post '/polls/:poll_id/vote' do
+  @poll = Poll.get(params[:poll_id])
+  @times_voted = @poll.count_votes(request.ip)
+  redirect "/polls/#{@poll.id.to_s}/results" if @poll.has_voted(request.ip) 
+  @poll.candidates.each do |candidate| 
+    candidate_checked = !params['candidate-' + candidate.id.to_s].nil?
+    candidate.vote(request.ip) if candidate_checked 
+  end
+  redirect '/polls/' + @poll.id.to_s + '/results'
+end  
 
 post '/polls/:poll_id/vote/:candidate_id' do
   @poll = Poll.get(params[:poll_id])
   candidate = Candidate.get(params[:candidate_id]) 
   candidate.vote(request.ip)
-  redirect '/polls/' + @poll.id.to_s  
+  redirect "/polls/#{@poll.id.to_s}"
 end
 
 get '/polls/:poll_id/results' do
@@ -145,18 +177,41 @@ __END__
   %input{ :name => "name" }
   %br
   %br
-  %label Number of Votes:
+  %label Vote Type:
+  %br
+  %input{ :name => "vote_type", :type => "radio", :value => "single" }
+  %label Single Vote
+  %br
+  %input{ :name => "vote_type", :type => "radio", :value => "multi" }
+  %label Multiple Votes
+  %label (Limit 
   %input{ :name => "num_votes" , :size => 3}
+  )
+  %br
+  %input{ :name => "vote_type", :type => "radio", :value => "checkbox" }
+  %label Checkbox Vote
   %br
   %br
-  %label List of Candidates (one per line)
+  %label List of Candidates (one per line):
   %br
   %textarea{ :name => "candidates", :rows => 5, :cols => 20 }
   %br
   %br
   %input{ :type => "submit" , :value => 'Create'}
 
-@@ candidates
+@@ choose_many_candidates
+%title #{@poll.name} Poll
+%h3 #{@poll.name} Poll
+
+%form{:method => "post", :action => "/polls/#{@poll.id}/vote"}
+  %ol
+    - @candidates.each do |candidate|
+      %li
+        =candidate.name 
+        %input{:name => "candidate-#{candidate.id}", :type => "checkbox"}
+  %input{:value => "vote", :type => "submit"}
+
+@@ choose_one_candidate
 %title #{@poll.name} Poll
 %h3 #{@poll.name} Poll
 %h2 Pick#{@times_voted > 0 && @times_voted < @poll.num_votes - 1 ? " Another":""} One#{@times_voted == @poll.num_votes - 1 ? " More":""}.
